@@ -1,0 +1,78 @@
+#!/bin/bash -
+
+# Round-Robin Login to a Machine by SSH
+# http://www.masella.name/technical/sshany.html
+
+# To login, just run this script. Run with -auth to register all machines
+# in known_hosts.
+
+TEMP=`getopt -o am:d: -n 'sshany' -- "$@"`
+
+if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+
+eval set -- "$TEMP"
+
+AUTH=no
+
+while true ; do
+        case "$1" in
+                -m)
+                        machines="$machines $2$domain"
+                        shift 2
+                        ;;
+                -d)
+                        domain=".$2"
+                        shift 2
+                        ;;
+                -a)
+                        AUTH="yes"
+                        shift
+                        ;;
+                --)
+                        shift
+                        break
+                        ;;
+                *) echo "Internal error!" ; exit 1 ;;
+        esac
+done
+
+if [ "x$machines" = x ]
+then
+	echo "$0 [-d domainsuffix] -m machine1 -m machine2 ... [ -d domainsuffix -m machineA -m machine B ...] -- paramaters to ssh"
+	exit 1
+fi
+
+# Check if the user wants to build the fingerprint cache...
+if [ $AUTH = yes ]
+then
+	echo "Building Authentication List..."
+	
+	for machine in $machines
+	do
+		# Check if the host is up.
+		if nc -w 1 -z $machine 22 2>/dev/null
+		then
+			echo "Registering $machine"
+			# Obliterate it from the known_hosts file.
+			sed -i '/^'$machine'/d' ~/.ssh/known_hosts
+			# Request the key.
+			ssh-keyscan -t rsa,dsa $machine 2> /dev/null >>  ~/.ssh/known_hosts
+		else
+			echo "$machine is unavailable."
+		fi
+	done
+	exit 0
+fi
+
+while [ ! -z "$machines" ]
+do
+	# Pick a host.
+	count=`echo $machines | wc -w | tr -d " "`
+	machine=`echo $machines | cut -f $(($count*$RANDOM/32768 + 1)) -d " "`
+	machines="`echo $machines | sed -e "s/$machine//g;s/  / /g;s/^ //g;s/ $//g"`"
+
+	# Try to login
+	nc -w 1 -z $machine 22 && exec ssh -X $machine "$@"
+done
+
+exit 1

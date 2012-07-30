@@ -1,0 +1,9 @@
+#!/usr/bin/perl -w
+
+# this script changes all words to Title case
+
+while (<>)
+{
+s/(\w+)/\u\L$1/g;
+print $_;
+}

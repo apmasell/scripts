@@ -1,0 +1,231 @@
+#!/usr/bin/awk -f
+# Given a file describing a genome/plasmid, draw a map in SVG.
+# http://www.masella.name/technical/drawmap.html
+
+BEGIN {
+	radius = 200;
+	ticklen = 10;
+	ringspace = 25;
+	maxring = 1;
+	fontstyle = "font-family: Iwona";
+	markersize = 8;
+	regionsize = 12;
+	namesize = 16;
+	strokestyle="stroke: black; stroke-width: 1";
+	document = "<circle cx=\"0\" cy=\"0\" r=\"" (radius) "\" style=\"fill: none; stroke: black; stroke-width: 2\"/>\n";
+}
+
+# Add a tick on the plasmid given a nucleotide position
+function addMarker(text, position, inside) {
+	# Angle, in °
+	tickangle = position / seqlen * 360;
+	# Text orientation
+	flipped = (tickangle > 90 && tickangle < 270);
+
+	# Draw the tick
+	document = document "<line x1=\""radius"\" y1=\"0\" x2=\"" (radius + (inside ? -1 : 1) * ticklen) "\" y2=\"0\" transform=\"rotate(" (tickangle) ")\" style=\"" strokestyle "\"/>";
+
+	# Draw the text
+	document = document "<text x=\"0\" y=\"4\" transform=\"rotate(" (tickangle) ") translate(" (radius + (inside ? -1.5 : 1.5) * ticklen) ")" (flipped ? " rotate(180)" : "") "\" style=\"font-size: " (markersize) ";" (fontstyle)"\" text-anchor=\"" (flipped && !inside || !flipped && inside ? "end" : "start") "\">" (text) "</text>\n";
+}
+
+function getPathForArc(radius, startangle, stopangle, large, sweep) {
+	return (radius * cos(startangle)) " " (radius * sin(startangle)) " A " (radius) " " (radius) " 0 " (large) " " (sweep) " " (radius * cos(stopangle)) " " (radius * sin(stopangle));
+}
+
+function addRegion(text, start, stop, depth) {
+	# Compute the radius and angular displacement (in °) for the arc
+	r = radius + ringspace * (depth + 1);
+	theta = (stop - start) / seqlen * 360;
+
+	# Compute the midpoint of the arc, in °, where the text will go
+	textangle = (start + (stop - start)/2) / seqlen * 360;
+	if (theta > 180) {
+		theta = 360 - theta;
+		textangle = ((stop + (seqlen - stop + start) / 2) / seqlen * 360);
+		temp = start; start = stop; stop = temp;
+	}
+
+	# The bounding box of the figure is determine by the outermost region; record it
+	if (depth > maxring) {
+		maxring = depth;
+	}
+
+	# These are used in SVG's magic arc calculation
+	large = theta > 180;
+	sweep = 1;
+
+	document = document "<!-- from " (start) " to " (stop) "; angle = " (theta) "°-->"
+
+	# Determine the start, stop and text angles in radians (for AWK)
+	startangle = start / seqlen * 2 * 3.14159;
+	stopangle = stop / seqlen * 2 * 3.14159;
+	midangle = textangle / 180 * 3.14159;
+
+	# Determine, in radians, the width of the text
+	textsector = regionsize * (0.1 + length(text) * 0.3) / r;
+	if (textsector + regionsize / r > theta) {
+		print (NR) ": Region " (text) " seems to be too large" > "/dev/stderr"
+	}
+
+	# Draw an arc from the start to the middle with enough space for the text
+	document = document "<path d=\"M " (getPathForArc(r, startangle, midangle - textsector, large, sweep)) "\" style=\"marker-start: url(#bar); fill: none;" (strokestyle) "\"/>"
+
+	# Draw an arc from the middle, giving space for the text, to the end
+	document = document "<path d=\"M " (getPathForArc(r, midangle + textsector, stopangle, large, sweep)) "\" style=\"marker-end: url(#bar); fill: none;" (strokestyle)"\"/>"
+
+	# Draw the text
+	transform = "rotate(" (textangle) ") translate(" (r) ") rotate(" (textangle > 180 ? "" : "-") "90)" 
+	document = document "<text transform=\"" (transform) "\" x=\"0\" y=\"" (regionsize * 0.3) "\" style=\"font-size: " (regionsize) ";" (fontstyle) "\" text-anchor=\"middle\">" (text) "</text>\n";
+}
+
+function addSector(style, start, stop, inner, outer) {
+	# Compute the radius and angular displacement (in °) for the arc
+	ri = radius + ringspace * inner;
+	ro = radius + ringspace * outer;
+	theta = (stop - start) / seqlen * 360;
+	if (theta > 180) {
+		theta = 360 - theta;
+		temp = start; start = stop; stop = temp;
+	}
+
+	# The bounding box of the figure is determine by the outermost region; record it
+	if (outer > maxring) {
+		maxring = outer;
+	}
+
+	# These are used in SVG's magic arc calculation
+	large = theta > 180;
+	sweep = 1;
+
+	document = document "<!-- from " (start) " to " (stop) "; angle = " (theta) "°-->"
+
+	# Determine the start, stop and text angles in radians (for AWK)
+	startangle = start / seqlen * 2 * 3.14159;
+	stopangle = stop / seqlen * 2 * 3.14159;
+
+	# Draw an arc from the start to the middle with enough space for the text
+	document = "<path d=\"M " (getPathForArc(ro, startangle, stopangle, large, sweep)) " L " (getPathForArc(ri, stopangle, startangle, large, 1 - sweep)) " Z\" style=\"" (style) "\"/>\n" document 
+}
+
+NR==1 {
+	seqlen=$1;
+
+	# Compute the sequence length in pretty units
+	f = 0;
+	while (seqlen > 10^(3 * f + 2)) {
+		f++;
+	}
+	prefix[0] = "";
+	prefix[1] = "k";
+	prefix[2] = "M";
+	prefix[3] = "G";
+	prefix[4] = "T";
+	prettylen = (int(seqlen / (10 ^ (3 * f - 2))) / 100) " " prefix[f] "bp";
+
+	# Add the name of the plasmid and the size
+	document = document "<text x=\"0\" y=\"0\" style=\"font-size: " (namesize) ";" (fontstyle) "\" text-anchor=\"middle\">" ($2) "</text>\n<text x=\"0\" y=\"" (regionsize * 1.2) "\" style=\"font-size: "regionsize ";"fontstyle"\" text-anchor=\"middle\">" (prettylen) "</text>\n";
+}
+
+## Transposon on the outside ["t" name ntposition]
+$1=="t" {
+	tp[$2]=$3;
+	addMarker($2, $3, 0);
+}
+
+## Transposon on the inside ["T" name ntposition]
+$1=="T" {
+	tp[$2]=$3;
+	addMarker($2, $3, 0);
+}
+
+## Genes on the inside ["g" name ntposition]
+$1=="g" {
+	addMarker($2, $3, 1);
+}
+
+## Genes on the outside ["G" name ntposition]
+$1=="G" {
+	addMarker($2, $3, 1);
+}
+
+## Region defined by nucleotides ["r" name startnt stopnt ring]
+$1=="r" {
+	start = $3 < $4 ? $3 : $4;
+	stop = $3 > $4 ? $3 : $4;
+	addRegion($2, start, stop, $5);
+}
+
+## Region defined by transposons ["rt" name starttp stoptp ring]
+$1=="rt" {
+	if (!($3 in tp)) {
+		print (NR) ": Region " ($2) " references non-existant transposon " ($3) > "/dev/stderr"
+	}
+	if (!($4 in tp)) {
+		print (NR) ": Region " ($2) " references non-existant transposon " ($4) > "/dev/stderr"
+	}
+	start = tp[$3] < tp[$4] ? tp[$3] : tp[$4];
+	stop = tp[$3] > tp[$4] ? tp[$3] : tp[$4];
+	addRegion($2, start, stop, $5);
+}
+
+## Highlighted sector/wedge by nucleotides ["s" startnt stopnt innerring outerring style]
+$1=="s" {
+	start = $2 < $3 ? $2 : $3;
+	stop = $2 > $3 ? $2 : $3;
+	inner = ($4 < $5 ? $4 : $5);
+	outer = ($5 < $4 ? $4 : $5);
+	if (inner > 0) { inner++; }
+	if (outer > 0) { outer++; }
+	addSector($6, start, stop, inner, outer);
+}
+
+## Highlighted sector/wedge by transposons ["st" starttp stoptp innerring outerring style]
+$1=="st" {
+	if (!($2 in tp)) {
+		print (NR) ": Sector references non-existant transposon " ($2) > "/dev/stderr"
+	}
+	if (!($3 in tp)) {
+		print (NR) ": Sector references non-existant transposon " ($3) > "/dev/stderr"
+	}
+	start = tp[$2] < tp[$3] ? tp[$2] : tp[$3];
+	stop = tp[$2] > tp[$3] ? tp[$2] : tp[$3];
+	inner = ($4 < $5 ? $4 : $5);
+	outer = ($5 < $4 ? $4 : $5);
+	if (inner > 0) { inner++; }
+	if (outer > 0) { outer++; }
+	addSector($6, start, stop, inner, outer);
+}
+
+## Highlighted sector/wedge by one transposon and one nucleotide position ["sT" starttp stopnt innerring outerring style]
+$1=="sT" {
+	if (!($2 in tp)) {
+		print (NR) ": Sector references non-existant transposon " ($2) > "/dev/stderr"
+	}
+	start = tp[$2] < $3 ? tp[$2] : $3;
+	stop = tp[$2] > $3 ? tp[$2] : $3;
+	inner = ($4 < $5 ? $4 : $5);
+	outer = ($5 < $4 ? $4 : $5);
+	if (inner > 0) { inner++; }
+	if (outer > 0) { outer++; }
+	addSector($6, start, stop, inner, outer);
+}
+
+$1 ~ /^#/ {}
+
+END {
+	# Compute the diameter of the diagram
+	d = 2*(radius + ringspace * (maxring + 2));
+
+	# Print out the SVG header
+	print "<?xml version=\"1.0\" standalone=\"no\"?>"
+	print "<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">"
+	print "<svg version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" width=\"" (d) "\" height=\"" (d) "\">"
+	# Create a marker for the vertical bars at the end of regions
+	print "<defs><marker id=\"bar\" viewBox=\"0 0 " (ticklen) " " (ticklen) "\" refX=\"0\" refY=\"" (ticklen * 0.5) "\" markerUnits=\"userSpaceOnUse\" markerWidth=\"2\" markerHeight=\"" (ticklen) "\" orient=\"auto\"><line x1=\"0\" x2=\"0\" y1=\"0\" y2=\"" (ticklen) "\" stroke=\"black\" stroke-width=\"2\" fill=\"none\"/></marker></defs>"
+	# Print the content in a translated coordinate space so (0, 0) is the centre of the document.
+	print "<g transform=\"translate(" (d * 0.5) " " (d * 0.5) ")\">\n";
+	print document;
+	print "</g></svg>";
+}
+

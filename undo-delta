@@ -1,0 +1,74 @@
+#!/bin/bash
+# http://www.masella.name/technical/backup.html
+
+HOST=`hostname -s | titlecase`
+
+TEMP=`getopt -o e:h:n: -n 'undodelta' -- "$@"`
+
+if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+
+eval set -- "$TEMP"
+
+while true ; do
+        case "$1" in
+               -e)
+                        EXT=.$2
+                        shift 2
+                        ;;
+               -h)
+                        HOST=$2
+                        shift 2
+                        ;;
+               -n)
+                        NAME=/$2
+                        shift 2
+                        ;;
+                --)
+                        shift
+                        break
+                        ;;
+                *) echo "Internal error!" ; exit 1 ;;
+        esac
+done
+
+if [ $# -ne 1 ]
+then
+	echo $0 '[-h hostname] [-e fileextension] [-n name] backuproot'
+	exit 1
+fi
+
+if [ ! -f $1/.backup ]
+then
+	echo Not a backup directory root.
+	exit 1
+fi
+
+DESTDIR=$1/$HOST$NAME
+
+UNDO=$DESTDIR/undo-`date --iso-8601`${EXT}.patch
+NEW=$DESTDIR/new$EXT
+CURRENT=$DESTDIR/current$EXT
+
+cat > $NEW
+
+if [ ! -s $NEW ]
+then
+	echo Database $HOST$NAME is missing.
+	rm $NEW
+elif [ -r $CURRENT ]
+then
+	diff -u $NEW $CURRENT > $UNDO
+	if [ -r $NEW -a -r $UNDO ]
+	then
+		if [ ! -s $UNDO ]
+		then
+			rm $UNDO
+		fi
+	
+		mv $NEW $CURRENT
+	else
+		echo Failed to do undo delta to $CURRENT! 2>&1
+	fi
+else
+	mv $NEW $CURRENT
+fi

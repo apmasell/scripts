@@ -1,0 +1,99 @@
+#!/bin/bash
+# http://www.masella.name/technical/backup.html
+
+LOG=/dev/stdout
+HOST=`hostname -s | titlecase`
+CURRDATE=`date -u '+%FT%T'`
+WHINE=""
+SUDOPARAM="-a"
+
+TEMP=`getopt b:ie:h:sw "$@"`
+
+if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+
+eval set -- "$TEMP"
+
+while true ; do
+	case "$1" in
+		-b)
+			PARAMS="$PARAMS --bwlimit=$2"
+			shift 2
+			;;
+		-i)
+			LOG=`mktemp /tmp/backup-XXXXXX`
+			PARAMS="$PARAMS --backup-dir=../$CURRDATE"
+			SUFFIX=/current
+			shift
+			;;
+		-e)
+			PARAMS="$PARAMS --exclude=$2"
+			shift 2
+			;;
+		-h)
+			HOST=$2
+			shift 2
+			;;
+		-s)
+			[ $(whoami) != root ] && PARAMS="$PARAMS --fake-root"
+			unset SUDOPARAM
+			shift
+			;;
+		-w)
+			WHINE="-oCheckHostIP=no"
+			shift
+			;;
+		--)
+			shift
+			break
+			;;
+		*) echo "Internal error!" ; exit 1 ;;
+	esac
+done
+
+if [ $# -ne 2 ]
+then
+	echo $0 '[-b bandwidth] [-i] [-s] [-w] [-h hostname] [-e exclude] sourcefolder backuproot'
+	echo -e '\t-b\tRestrict bandwidth to kB/s'
+	echo -e '\t-i\tIncremental'
+	echo -e '\t-s\tDo sudo on remote side'
+	echo -e '\t-w\tSupress SSH IP warnings'
+	[ $LOG  != /dev/stdout ] && rm -f $LOG
+	exit 1
+fi
+
+SRC=$1
+BACKUP=$2
+
+if echo $BACKUP | grep : > /dev/null
+then
+	if ssh $WHINE `echo $BACKUP | cut -f 1 -d : ` test -w "`echo $BACKUP | cut -f 2 -d : `/.backup" '&&' touch "`echo $BACKUP | cut -f 2 -d : `/.backup"
+	then
+		sleep 1
+	else
+		echo $BACKUP does not appear to be a remote backup directory to make backup of ${SRC}. 2>&1
+		[ $LOG  != /dev/stdout ] && rm -f $LOG
+		exit 1
+	fi
+else
+	if test -w "$BACKUP/.backup" && touch "$BACKUP/.backup"
+	then
+		sleep 1
+	else
+		echo $BACKUP does not appear to be a backup directory to make backup of ${SRC}. 2>&1
+		[ $LOG  != /dev/stdout ] && rm -f $LOG
+		exit 1
+	fi
+fi
+
+NAME=`basename $SRC | titlecase `
+if [ $NAME = / ]
+then
+	NAME=Root
+fi
+
+rsync -avbyi --delete-after --exclude ".xsession*" --exclude "Cache" --exclude ".cache" --exclude ".gvfs" --exclude "Junk" --exclude "*.nb" ${SUDOPARAM:- -e ssh --rsync-path='sudo rsync'} $PARAMS $SRC $BACKUP/$HOST/$NAME$SUFFIX > $LOG
+if [ $LOG != /dev/stdout ]
+then
+	scp -q $LOG $BACKUP/$HOST/$NAME/$CURRDATE.log
+	rm -f $LOG
+fi

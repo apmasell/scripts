@@ -1,0 +1,60 @@
+#!/bin/sh
+# http://www.masella.name/technical/backup.html
+
+AGE=15
+TEMP=`getopt -o a: -n 'backup-prune' -- "$@"`
+
+if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+
+eval set -- "$TEMP"
+
+while true ; do
+	case "$1" in
+		-a)
+			AGE=$2
+			shift 2
+			;;
+		--)
+			shift
+			break
+			;;
+		*) echo "Internal error!" ; exit 1 ;;
+	esac
+done
+
+if [ $# -ne 1 ]
+then
+	echo $0 '[-a age] backuproot'
+	echo -e '\t-a\tPurge any backups older than "age" days. Default is 15.'
+	exit 1
+fi
+
+if [ ! -f "$1/.backup" ]
+then
+	echo "$1" is not a backup directory.
+	exit 1
+fi
+
+for directory in $(find "$1" -maxdepth 2 -type d)
+do
+	for each in $(/bin/ls -d $directory/*-*-* 2> /dev/null )
+	do
+		FileName=$(basename "$each")
+		case $FileName in
+			*.log)
+				OldDate=$(basename $FileName .log)
+				;;
+			undo*.patch)
+				OldDate=$(basename $each | cut -f 2,3,4 -d- | cut -f 1 -d . )
+				;;
+			*)
+				OldDate=$FileName
+				;;
+		esac
+
+		if [ $(((`date +%s`-`date -d $OldDate +%s`)/3600/24)) -gt $AGE ]
+		then
+			rm -rf $each
+		fi
+	done
+done

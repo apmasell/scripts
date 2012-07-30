@@ -1,0 +1,79 @@
+#!/bin/bash -
+# Edit a zone using vi and send the changes to the DNS server via nsupdate
+# http://www.masella.name/technical/dnsvi.html
+
+USAGE="Usage: $0 [-v] [ -k keyfile | -y keyname:secret] domainname"
+TEMP=`getopt -o k:y:v -n 'dnsvi' -- "$@"`
+
+if [ $? != 0 ] ; then echo $USAGE >&2 ; exit 1 ; fi
+
+eval set -- "$TEMP"
+NSUARGS=""
+
+while true ; do
+	case "$1" in
+		-k)
+			NSUARGS="-k $2"
+			shift 2
+			;;
+		-y)
+			NSUARGS="-y $2"
+			shift 2
+			;;
+		-v)
+			NSUARGS="-v"
+			shift
+			;;
+		--)
+			shift
+			break
+			;;
+	esac
+done
+
+if [ $# -ne 1 ]
+then
+	echo $USAGE >&2
+	exit 1
+fi
+
+DOMAIN="$(echo $1 | sed -e 's/\.$//g' )"
+
+
+ORIG=`mktemp -t dnsvi.XXXXXX`
+NEW=`mktemp -t dnsvi.XXXXXX`
+DIFF=`mktemp -t dnsvi.XXXXXX`
+
+trap "rm -f $ORIG $NEW $DIFF" EXIT SIGTERM SIGINT
+
+[ -z "$EDITOR" ] && export EDITOR=vi
+
+DNSSORT='{ split ($1, fragments, "."); name=""; for (fragment in fragments) name=fragments[fragment](name?"." name:"") ; printf name; for (i = 2; i <= NF; i++) printf OFS $i; printf ORS; delete fragments }'
+
+dig -t axfr $DOMAIN | sed -e  '/^;/d;s/@/\\@/g;/^[ \t]*$/d;s/'$(echo $DOMAIN | sed -e 's/\./\\./g' )'\.\([ \t]\)/@\1/g;s/'$(echo $DOMAIN | sed -e 's/\./\\./g' )'\.$/@/g' | awk "${DNSSORT}" | sort | uniq | awk "${DNSSORT}" > $ORIG
+
+if [ $(wc -l $ORIG | cut -f 1 -d " ") -eq 0 ]
+then
+	echo I got nothing when looking for $DOMAIN. I give up.
+	exit 1
+fi
+
+cat $ORIG > $NEW
+
+$EDITOR $NEW
+
+diff --unchanged-line-format="" --new-line-format="update add %L" --old-line-format="update delete %L" -bB $ORIG $NEW | sed -e 's/\\@/@/g;s/@/'$DOMAIN'./g'  > $DIFF
+
+if [ $(wc -l $DIFF | cut -f 1 -d " ") -gt 0 ]
+then
+	echo In zone $DOMAIN
+	echo
+	cat $DIFF 
+	echo
+	echo 'Press enter to do it or ^C to abort.'
+	read
+	( echo zone $DOMAIN ; cat $DIFF ; echo send)  | nsupdate $NSUARGS
+else
+	echo No changes found.
+fi
+exit 0
