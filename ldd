@@ -1,0 +1,4 @@
+#!/bin/bash
+# Make MacOS have an ldd that looks like Linux
+
+otool -L "$1" | tail -n +2 | sed -e 's#\(/.*/\([^ /]*\)\) .*$#\2 => \1 (0x0)#g'
