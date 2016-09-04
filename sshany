@@ -1,7 +1,6 @@
 #!/bin/bash -
 
 # Round-Robin Login to a Machine by SSH
-# http://www.masella.name/technical/sshany.html
 
 # To login, just run this script. Run with -auth to register all machines
 # in known_hosts.

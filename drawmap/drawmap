@@ -1,6 +1,5 @@
 #!/usr/bin/awk -f
 # Given a file describing a genome/plasmid, draw a map in SVG.
-# http://www.masella.name/technical/drawmap.html
 
 BEGIN {
 	radius = 200;

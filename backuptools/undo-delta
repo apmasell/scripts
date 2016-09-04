@@ -1,5 +1,5 @@
 #!/bin/bash
-# http://www.masella.name/technical/backup.html
+# Produce an undo diff for backup
 
 HOST=`hostname -s | titlecase`
 

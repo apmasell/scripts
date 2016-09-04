@@ -1,7 +1,6 @@
 #!/bin/sh
 
 # SSH-LPR Backend
-# http://www.masella.name/technical/sshlpr
 
 # The purpose of the back end is to send print jobs to a remote system
 # through ssh and lpr on the remote side. It requires that the user who

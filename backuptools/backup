@@ -1,5 +1,5 @@
 #!/bin/bash
-# http://www.masella.name/technical/backup.html
+# Perform a backup
 
 LOG=/dev/stdout
 HOST=`hostname -s | titlecase`

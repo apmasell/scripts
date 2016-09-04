@@ -1,6 +1,26 @@
 #!/bin/bash -
 # Edit a zone using vi and send the changes to the DNS server via nsupdate
-# http://www.masella.name/technical/dnsvi.html
+#
+# BIND 9's dynamic zone configuration makes it very easy to edit the records in
+# zones, however, the program `nsupdate` is horrific to use. The lack of decent
+# editing make it terrible. I found a program called
+# [`ldapvi`](http://www.lichteblau.com/ldapvi/) which allows you to edit an
+# LDAP tree with your favourite editor. I eventually got the idea to do the
+# same thing for DNS using `dig` and `nsupdate`.
+#
+# Run `dnsvi zone` and it will to a transfer and allow you to edit the zone
+# with your `$EDITOR`. Once you save and quit, it will push your changes to the
+# DNS server. You can also specify a key via the `-k` or `-y` parameters. When
+# editing, the @ character will be substituted for the zone specified on the
+# command line. This means the syntax of the file isn't quite the same as the
+# BIND zone files. For instance, if you invoked `dnsvi example.org`, then
+# to add a host named `foo`, insert `foo.@ IN A 1.2.3.4`.
+#
+# All the updates are done in a single transaction, so if one should fail, the
+# others won't be processed. I think it would work with non-BIND DNS servers
+# assuming they support DDNS. Large zones take time to transfer and
+# transferring sub-trees in a zone is not possible. I also have no idea what
+# would happen if you changed the SOA. Good luck.
 
 USAGE="Usage: $0 [-v] [ -k keyfile | -y keyname:secret] domainname"
 TEMP=`getopt -o k:y:v -n 'dnsvi' -- "$@"`
